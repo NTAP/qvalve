@@ -1,8 +1,35 @@
 #! /usr/bin/env python3
 
+# SPDX-License-Identifier: BSD-2-Clause
+#
+# Copyright (c) 2018, NetApp, Inc.
+# All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# 1. Redistributions of source code must retain the above copyright notice,
+#    this list of conditions and the following disclaimer.
+#
+# 2. Redistributions in binary form must reproduce the above copyright notice,
+#    this list of conditions and the following disclaimer in the documentation
+#    and/or other materials provided with the distribution.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+# ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+# LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+# CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+# SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+# INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+# CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+# ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+# POSSIBILITY OF SUCH DAMAGE.
+
+# Based on the following gist of unknown license (inquiry poending):
 # https://gist.github.com/vxgmichel/b2cf8536363275e735c231caef35a5df
 
-"""UDP proxy server."""
 
 import argparse
 import asyncio
@@ -18,6 +45,8 @@ parser.add_argument('-lp', '--listen-port', default='4433', metavar='port',
                     type=int, dest='ltn_port', help='UDP port to listen on')
 args = parser.parse_args()
 
+pkt_cnt = {}
+
 
 class ProxyDatagramProtocol(asyncio.DatagramProtocol):
 
@@ -31,11 +60,13 @@ class ProxyDatagramProtocol(asyncio.DatagramProtocol):
 
     def datagram_received(self, data, addr):
         if addr in self.remotes:
-            print('RX {} bytes (type {:02x}) from {}'.format(len(data),
-                                                             data[0], addr))
+            pkt_cnt[addr] += 1
+            print('RX pkt {} w/{} bytes (type 0x{:02x}) from {}:{}'
+                  .format(pkt_cnt[addr], len(data), data[0], *addr))
             self.remotes[addr].transport.sendto(data)
             return
-        print('New connection from {}'.format(addr))
+        print('New connection from {}:*'.format(*addr))
+        pkt_cnt[addr] = 0
         loop = asyncio.get_event_loop()
         self.remotes[addr] = RemoteDatagramProtocol(self, addr, data)
         coro = loop.create_datagram_endpoint(
@@ -53,14 +84,16 @@ class RemoteDatagramProtocol(asyncio.DatagramProtocol):
 
     def connection_made(self, transport):
         self.transport = transport
-        print('RX {} bytes (type {:02x}) from {}'.format(len(self.data),
-                                                         self.data[0],
-                                                         self.addr))
+        pkt_cnt[self.addr] += 1
+        print('RX pkt {} w/{} bytes (type 0x{:02x}) from {}:{}'.
+              format(pkt_cnt[self.addr], len(self.data), self.data[0],
+                     *self.addr))
         self.transport.sendto(self.data)
 
     def datagram_received(self, data, addr):
-        print('RX {} bytes (type {:02x}) from {}'.format(len(data), data[0],
-                                                         addr))
+        pkt_cnt[addr] += 1
+        print('RX pkt {} w/{} bytes (type 0x{:02x}) from {}:{}'
+              .format(pkt_cnt[addr], len(data), data[0], *addr))
         self.proxy.transport.sendto(data, self.addr)
 
     def connection_lost(self, exc):
