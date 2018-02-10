@@ -33,11 +33,12 @@
 
 import argparse
 import asyncio
+from collections import defaultdict
 
 parser = argparse.ArgumentParser(description='Muck with QUIC packet flows.')
-parser.add_argument('-fa', '--forward-address', required=True, metavar='IP',
+parser.add_argument('-ra', '--remote-address', required=True, metavar='IP',
                     dest='fwd_addr', help='IP address to forward to')
-parser.add_argument('-fp', '--forward-port', default='4433', metavar='port',
+parser.add_argument('-rp', '--remote-port', default='4433', metavar='port',
                     type=int, dest='fwd_port', help='UDP port to forward to')
 parser.add_argument('-la', '--listen-address', default='0.0.0.0', metavar='IP',
                     dest='ltn_addr', help='IP address to listen on')
@@ -45,13 +46,13 @@ parser.add_argument('-lp', '--listen-port', default='4433', metavar='port',
                     type=int, dest='ltn_port', help='UDP port to listen on')
 args = parser.parse_args()
 
-pkt_cnt = {}
+pkt_cnt = defaultdict(int)
 
 
 class ProxyDatagramProtocol(asyncio.DatagramProtocol):
 
-    def __init__(self, remote_address):
-        self.remote_address = remote_address
+    def __init__(self, remote_addr):
+        self.remote_addr = remote_addr
         self.remotes = {}
         super().__init__()
 
@@ -60,17 +61,17 @@ class ProxyDatagramProtocol(asyncio.DatagramProtocol):
 
     def datagram_received(self, data, addr):
         if addr in self.remotes:
-            pkt_cnt[addr] += 1
+            peername = self.remotes[addr].transport.get_extra_info('peername')
+            pkt_cnt[addr, peername] += 1
             print('RX pkt {} w/{} bytes (type 0x{:02x}) from {}:{}'
-                  .format(pkt_cnt[addr], len(data), data[0], *addr))
+                  .format(pkt_cnt[addr, peername],
+                          len(data), data[0], *addr))
             self.remotes[addr].transport.sendto(data)
             return
-        print('New connection from {}:*'.format(*addr))
-        pkt_cnt[addr] = 0
         loop = asyncio.get_event_loop()
         self.remotes[addr] = RemoteDatagramProtocol(self, addr, data)
         coro = loop.create_datagram_endpoint(
-            lambda: self.remotes[addr], remote_addr=self.remote_address)
+            lambda: self.remotes[addr], remote_addr=self.remote_addr)
         asyncio.ensure_future(coro)
 
 
@@ -84,33 +85,35 @@ class RemoteDatagramProtocol(asyncio.DatagramProtocol):
 
     def connection_made(self, transport):
         self.transport = transport
-        pkt_cnt[self.addr] += 1
+        peername = transport.get_extra_info('peername')
+        pkt_cnt[self.addr, peername] += 1
         print('RX pkt {} w/{} bytes (type 0x{:02x}) from {}:{}'.
-              format(pkt_cnt[self.addr], len(self.data), self.data[0],
-                     *self.addr))
+              format(pkt_cnt[self.addr, peername], len(self.data),
+                     self.data[0], *self.addr))
         self.transport.sendto(self.data)
 
     def datagram_received(self, data, addr):
-        pkt_cnt[addr] += 1
+        pkt_cnt[addr, self.addr] += 1
         print('RX pkt {} w/{} bytes (type 0x{:02x}) from {}:{}'
-              .format(pkt_cnt[addr], len(data), data[0], *addr))
+              .format(pkt_cnt[addr, self.addr], len(data), data[0], *addr))
         self.proxy.transport.sendto(data, self.addr)
 
     def connection_lost(self, exc):
+        print('LOST')
         self.proxy.remotes.pop(self.attr)
 
 
-async def start_datagram_proxy(bind, port, remote_host, remote_port):
+async def start_datagram_proxy(bind, port, remote_addr, remote_port):
     loop = asyncio.get_event_loop()
-    protocol = ProxyDatagramProtocol((remote_host, remote_port))
+    protocol = ProxyDatagramProtocol((remote_addr, remote_port))
     return await loop.create_datagram_endpoint(
         lambda: protocol, local_addr=(bind, port))
 
 
 def main(bind=args.ltn_addr, port=args.ltn_port,
-         remote_host=args.fwd_addr, remote_port=args.fwd_port):
+         remote_addr=args.fwd_addr, remote_port=args.fwd_port):
     loop = asyncio.get_event_loop()
-    coro = start_datagram_proxy(bind, port, remote_host, remote_port)
+    coro = start_datagram_proxy(bind, port, remote_addr, remote_port)
     transport, _ = loop.run_until_complete(coro)
     try:
         loop.run_forever()
