@@ -34,7 +34,7 @@
 import argparse
 import asyncio
 from collections import defaultdict
-from textx import metamodel_from_file
+from textx import metamodel_from_str
 from test import Test
 
 parser = argparse.ArgumentParser(description='Muck with QUIC packet flows.')
@@ -46,7 +46,7 @@ parser.add_argument('-la', '--listen-address', default='0.0.0.0', metavar='IP',
                     dest='ltn_addr', help='IP address to listen on')
 parser.add_argument('-lp', '--listen-port', default='4433', metavar='port',
                     type=int, dest='ltn_port', help='UDP port to listen on')
-parser.add_argument('-t', '--test', default='test.qv', metavar='file',
+parser.add_argument('-t', '--test', metavar='file',
                     type=str, dest='test_file', help='Test case definition')
 args = parser.parse_args()
 
@@ -114,12 +114,26 @@ async def start_datagram_proxy(bind, port, remote_addr, remote_port):
         lambda: protocol, local_addr=(bind, port))
 
 
+metamodel = r"""
+    Script: statements*=Statement;
+    Statement: dir=Direction type=PacketType range=Range op=Operation;
+    Direction: '<' | '>';
+    PacketType: /(0x[0-9a-f]+)|([0-9]+)/;
+    Range: PacketRange | SinglePacket;
+    SinglePacket: start=INT;
+    PacketRange: start=INT '..' end=INT;
+    Operation: 'drop';
+    Comment: /#.*$/;
+"""
+
+
 def main(bind=args.ltn_addr, port=args.ltn_port,
          remote_addr=args.fwd_addr, remote_port=args.fwd_port):
-    qvalve_mm = metamodel_from_file('qvalve.tx')
-    qvalve_model = qvalve_mm.model_from_file(args.test_file)
-    test = Test()
-    test.interpret(qvalve_model)
+    if args.test_file:
+        qvalve_mm = metamodel_from_str(metamodel)
+        qvalve_model = qvalve_mm.model_from_file(args.test_file)
+        test = Test()
+        test.interpret(qvalve_model)
 
     loop = asyncio.get_event_loop()
     coro = start_datagram_proxy(bind, port, remote_addr, remote_port)
