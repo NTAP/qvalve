@@ -27,13 +27,15 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 
-# Based on the following gist of unknown license (inquiry poending):
+# Based on the following gist of unknown license (inquiry pending):
 # https://gist.github.com/vxgmichel/b2cf8536363275e735c231caef35a5df
 
 
 import argparse
 import asyncio
 from collections import defaultdict
+from textx import metamodel_from_file
+from test import Test
 
 parser = argparse.ArgumentParser(description='Muck with QUIC packet flows.')
 parser.add_argument('-ra', '--remote-address', required=True, metavar='IP',
@@ -44,6 +46,8 @@ parser.add_argument('-la', '--listen-address', default='0.0.0.0', metavar='IP',
                     dest='ltn_addr', help='IP address to listen on')
 parser.add_argument('-lp', '--listen-port', default='4433', metavar='port',
                     type=int, dest='ltn_port', help='UDP port to listen on')
+parser.add_argument('-t', '--test', default='test.qv', metavar='file',
+                    type=str, dest='test_file', help='Test case definition')
 args = parser.parse_args()
 
 pkt_cnt = defaultdict(int)
@@ -112,6 +116,11 @@ async def start_datagram_proxy(bind, port, remote_addr, remote_port):
 
 def main(bind=args.ltn_addr, port=args.ltn_port,
          remote_addr=args.fwd_addr, remote_port=args.fwd_port):
+    qvalve_mm = metamodel_from_file('qvalve.tx')
+    qvalve_model = qvalve_mm.model_from_file(args.test_file)
+    test = Test()
+    test.interpret(qvalve_model)
+
     loop = asyncio.get_event_loop()
     coro = start_datagram_proxy(bind, port, remote_addr, remote_port)
     transport, _ = loop.run_until_complete(coro)

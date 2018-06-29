@@ -1,4 +1,4 @@
-FROM alpine:3.7
+FROM alpine:latest
 RUN apk add --no-cache python3
 ADD /bin /qvalve
 EXPOSE 4433/UDP
