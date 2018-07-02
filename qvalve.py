@@ -51,6 +51,44 @@ parser.add_argument('-t', '--test', metavar='file',
 args = parser.parse_args()
 
 pkt_cnt = defaultdict(int)
+test = Test()
+
+
+def fwd_pkt(addr, peername, data, dir):
+    t = ''
+    if data[0] == (0x80 | 0x7f):
+        t = 'i'
+    elif data[0] == (0x80 | 0x7e):
+        t = 'r'
+    elif data[0] == (0x80 | 0x7d):
+        t = 'h'
+    elif data[0] == (0x80 | 0x7c):
+        t = 'z'
+    elif data[0] & 0x80:
+        t = 'v'
+    elif (data[0] & 0x80) == 0 and (data[0] & 0b00110000) == 0b00110000:
+        t = 's'
+    assert t != ''
+
+    pkt_cnt[t, addr, peername] += 1
+    n = pkt_cnt[t, addr, peername]
+
+    print('{} {} {}{} '.format(dir, len(data), t, n), end='')
+
+    rules = test.rules_clnt if dir == '>' else test.rules_serv
+    if (t in rules) and (n in rules[t]):
+        r = rules[t][n]
+        if (t == r.type):
+            print(r.op)
+            if r.op == 'drop':
+                return False
+            elif r.op == 'nop':
+                return True
+            assert False, "unknown op {}".format(r.op)
+
+    print()
+    return True
+
 
 
 class ProxyDatagramProtocol(asyncio.DatagramProtocol):
@@ -66,11 +104,8 @@ class ProxyDatagramProtocol(asyncio.DatagramProtocol):
     def datagram_received(self, data, addr):
         if addr in self.remotes:
             peername = self.remotes[addr].transport.get_extra_info('peername')
-            pkt_cnt[addr, peername] += 1
-            print('RX pkt {} w/{} bytes (type 0x{:02x}) from {}:{}'
-                  .format(pkt_cnt[addr, peername],
-                          len(data), data[0], *addr))
-            self.remotes[addr].transport.sendto(data)
+            if fwd_pkt(addr, peername, data, '>') == True:
+                self.remotes[addr].transport.sendto(data)
             return
         loop = asyncio.get_event_loop()
         self.remotes[addr] = RemoteDatagramProtocol(self, addr, data)
@@ -90,17 +125,12 @@ class RemoteDatagramProtocol(asyncio.DatagramProtocol):
     def connection_made(self, transport):
         self.transport = transport
         peername = transport.get_extra_info('peername')
-        pkt_cnt[self.addr, peername] += 1
-        print('RX pkt {} w/{} bytes (type 0x{:02x}) from {}:{}'.
-              format(pkt_cnt[self.addr, peername], len(self.data),
-                     self.data[0], *self.addr))
-        self.transport.sendto(self.data)
+        if fwd_pkt(self.addr, peername, self.data, '>') == True:
+            self.transport.sendto(self.data)
 
     def datagram_received(self, data, addr):
-        pkt_cnt[addr, self.addr] += 1
-        print('RX pkt {} w/{} bytes (type 0x{:02x}) from {}:{}'
-              .format(pkt_cnt[addr, self.addr], len(data), data[0], *addr))
-        self.proxy.transport.sendto(data, self.addr)
+        if fwd_pkt(addr, self.addr, data, '<') == True:
+            self.proxy.transport.sendto(data, self.addr)
 
     def connection_lost(self, exc):
         print('LOST')
@@ -118,11 +148,11 @@ metamodel = r"""
     Script: statements*=Statement;
     Statement: dir=Direction type=PacketType range=Range op=Operation;
     Direction: '<' | '>';
-    PacketType: /(0x[0-9a-f]+)|([0-9]+)/;
+    PacketType: 'i' | 'r' | 'h' | 'z' | 'v' | 's';
     Range: PacketRange | SinglePacket;
     SinglePacket: start=INT;
     PacketRange: start=INT '..' end=INT;
-    Operation: 'drop';
+    Operation: 'drop' | 'nop' | 'dup';
     Comment: /#.*$/;
 """
 
@@ -132,9 +162,10 @@ def main(bind=args.ltn_addr, port=args.ltn_port,
     if args.test_file:
         qvalve_mm = metamodel_from_str(metamodel)
         qvalve_model = qvalve_mm.model_from_file(args.test_file)
-        test = Test()
+        print('Parsing test:')
         test.interpret(qvalve_model)
 
+    print('\nApplying rules:')
     loop = asyncio.get_event_loop()
     coro = start_datagram_proxy(bind, port, remote_addr, remote_port)
     transport, _ = loop.run_until_complete(coro)
