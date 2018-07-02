@@ -4,5 +4,8 @@
 # drop the first server vneg pkt
 < v1 drop
 
+# duplicate the second server vneg pkt three times (= four copies sent)
+< v2 dup 3
+
 # nop does nothing
 < h1 nop

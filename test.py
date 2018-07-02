@@ -51,9 +51,12 @@ class Test(object):
         for s in model.statements:
             print("{} {}{}".format(s.dir, s.type, s.range.start), end='')
             if s.range.__class__.__name__ == "SinglePacket":
-                print(" {}".format(s.op))
                 self.add_rule(s.range.start, s)
             else:
-                print("..{} {}".format(s.range.end, s.op))
+                print("..{}".format(s.range.end), end='')
                 for i in range(s.range.start, s.range.end + 1):
                     self.add_rule(i, s)
+            if s.op.str == "dup":
+                print(" {} {}".format(s.op.str, s.op.copies))
+            else:
+                print(" {}".format(s.op.str))

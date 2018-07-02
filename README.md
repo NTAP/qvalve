@@ -14,6 +14,9 @@ language. Examples:
 # drop the first server version-negotiation packet
 < v1 drop
 
+# duplicate the second server version-negotiation packet three times
+< v2 dup 3
+
 # nop does nothing
 < h1 nop
 ```
