@@ -27,12 +27,13 @@
 
 from collections import defaultdict
 
+
 class Rule(object):
 
     def __init__(self, seqno, op, type):
-        self.seqno = seqno;
-        self.op = op;
-        self.type = type;
+        self.seqno = seqno
+        self.op = op
+        self.type = type
 
 
 class Rules(object):
@@ -41,22 +42,31 @@ class Rules(object):
         self.clnt = defaultdict(dict)
         self.serv = defaultdict(dict)
 
-    def add_rule(self, seqno, statement):
-        r = Rule(seqno, statement.op, statement.type)
-        rules = self.clnt if statement.dir == '>' else self.serv
-        assert seqno not in rules[statement.type]
-        rules[statement.type][seqno] = r
+    def add_rule(self, seqno, rule):
+        r = Rule(seqno, rule.op, rule.type)
+        rules = self.clnt if rule.dir == '>' else self.serv
+        assert seqno not in rules[rule.type], \
+            'Already have a rule for {}{}'.format(rule.type, seqno)
+        rules[rule.type][seqno] = r
 
     def interpret(self, model):
         for s in model.rules:
-            print("{} {}{}".format(s.dir, s.type, s.range.start), end='')
-            if s.range.__class__.__name__ == "SinglePacket":
+            print('{} {}{}'.format(s.dir, s.type, s.range.start), end='')
+
+            if s.range.__class__.__name__ == 'SinglePacket':
                 self.add_rule(s.range.start, s)
             else:
-                print("..{}".format(s.range.end), end='')
+                print('..{}'.format(s.range.end), end='')
                 for i in range(s.range.start, s.range.end + 1):
                     self.add_rule(i, s)
-            if s.op.str == "dup":
-                print(" {} {}".format(s.op.str, s.op.copies))
+
+            if s.op.str == 'dup':
+                assert s.op.copies > 0, \
+                    '{} copies cannot be {}'.format(s.op.str, s.op.copies)
+                print(' {} {}'.format(s.op.str, s.op.copies))
+            elif s.op.str == 'reor':
+                assert s.op.count > 0, \
+                    '{} count cannot be {}'.format(s.op.str, s.op.count)
+                print(' {} {}'.format(s.op.str, s.op.count))
             else:
-                print(" {}".format(s.op.str))
+                print(' {}'.format(s.op.str))

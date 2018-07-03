@@ -42,8 +42,8 @@
 # copies of the Software, and to permit persons to whom the Software is
 # furnished to do so, subject to the following conditions:
 #
-# The above copyright notice and this permission notice shall be included in all
-# copies or substantial portions of the Software.
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
 #
 # THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 # IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
@@ -56,6 +56,7 @@
 
 import argparse
 import asyncio
+from struct import *
 from collections import defaultdict
 from textx import metamodel_from_str
 from rules import Rules
@@ -73,11 +74,20 @@ parser.add_argument('-r', '--rules', metavar='file',
                     type=str, dest='rules_file', help='Impairment rules')
 args = parser.parse_args()
 
-pkt_cnt = defaultdict(int)
+cnt_type = defaultdict(int)
+cnt_all = defaultdict(int)
+
 rules = Rules()
 
+reor_q = defaultdict(list)
 
-def fwd_pkt(addr, peername, data, dir, transport, dst=None):
+
+def print_pkt(call, dir, len, t, ctype, end=None):
+    print('{}{} {} {}{} '.format(call, dir, len, t, ctype), end=end)
+
+
+def fwd_pkt(addr, peer, data, dir, tp, dst=None):
+    # now handle the current packet
     t = ''
     if data[0] == (0x80 | 0x7f):
         t = 'i'
@@ -87,40 +97,71 @@ def fwd_pkt(addr, peername, data, dir, transport, dst=None):
         t = 'h'
     elif data[0] == (0x80 | 0x7c):
         t = 'z'
-    elif data[0] & 0x80:
+    elif data[0] & 0x80 and unpack('!L', data[1:5])[0] == 0:
         t = 'v'
     elif (data[0] & 0x80) == 0 and (data[0] & 0b00110000) == 0b00110000:
         t = 's'
     assert t != ''
 
-    pkt_cnt[t, addr, peername] += 1
-    n = pkt_cnt[t, addr, peername]
-
-    print('{} {} {}{} '.format(dir, len(data), t, n), end='')
+    cnt_all[addr, peer] += 1
+    cnt_type[t, addr, peer] += 1
 
     r = rules.clnt if dir == '>' else rules.serv
-    if (t in r) and (n in r[t]):
-        rule = r[t][n]
+    if (t in r) and (cnt_type[t, addr, peer] in r[t]):
+        rule = r[t][cnt_type[t, addr, peer]]
         if (t == rule.type):
             if rule.op.str == 'drop':
+                print_pkt(cnt_all[addr, peer], dir, len(data), t,
+                          cnt_type[t, addr, peer], '')
                 print(rule.op.str)
-                # just return
-                return
-            elif rule.op.str == 'dup':
-                print(rule.op.str, rule.op.copies, end='')
-                # sent copies
-                for i in range(rule.op.copies):
-                    transport.sendto(data, dst)
-                # the final copy is sent before exiting below
-            elif rule.op.str == 'nop':
-                print(rule.op.str, end='')
-                # normal operation per below
-            else:
-                # what is this?
-                assert False, "unknown op {}".format(rule.op.str)
+                # don't send
 
-    print()
-    transport.sendto(data, dst)
+            elif rule.op.str == 'dup':
+                for i in range(rule.op.copies + 1):
+                    if i > 0:
+                        cnt_type[t, addr, peer] += 1
+                        cnt_all[addr, peer] += 1
+                        print_pkt(cnt_all[addr, peer], dir, len(data),
+                                  t, cnt_type[t, addr, peer], '')
+                        print('{}'.format(rule.op.str))
+                    else:
+                        print_pkt(cnt_all[addr, peer], dir, len(data),
+                                  t, cnt_type[t, addr, peer])
+                    tp.sendto(data, dst)
+
+            elif rule.op.str == 'reor':
+                cnt_all[addr, peer] -= 1
+                print_pkt(' ', dir, len(data), t,
+                          cnt_type[t, addr, peer], '')
+                print(rule.op.str, rule.op.count, '(enq)')
+                # enqueue the packet
+                q = reor_q[addr, peer, cnt_all[addr, peer] + rule.op.count]
+                q.append({'transport': tp, 'data': data, 'dst': dst,
+                          't': t, 'ctype': cnt_type[t, addr, peer]})
+
+            elif rule.op.str == 'nop':
+                print_pkt(cnt_all[addr, peer], dir, len(data), t,
+                          cnt_type[t, addr, peer], '')
+                print(rule.op.str)
+                tp.sendto(data, dst)
+
+            else:
+                # what op is this?
+                assert False, 'unknown op {}'.format(rule.op.str)
+    else:
+        print_pkt(cnt_all[addr, peer], dir, len(data), t,
+                  cnt_type[t, addr, peer])
+        tp.sendto(data, dst)
+
+    # check if we need to dequeue and tx prior reordered packets
+    if reor_q[addr, peer, cnt_all[addr, peer]]:
+        for p in reor_q[addr, peer, cnt_all[addr, peer]]:
+            p['transport'].sendto(p['data'], p['dst'])
+            cnt_all[addr, peer] += 1
+            print_pkt(cnt_all[addr, peer], dir, len(p['data']), p['t'],
+                      p['ctype'], '')
+            print('(reor deq)')
+        reor_q[addr, peer, cnt_all[addr, peer]].clear()
 
 
 class ProxyDatagramProtocol(asyncio.DatagramProtocol):
@@ -181,15 +222,18 @@ metamodel = r"""
     Range: PacketRange | SinglePacket;
     SinglePacket: start=INT;
     PacketRange: start=INT '..' end=INT;
-    Operation: str='drop' | str='nop' | str='dup' (copies=INT)?;
+    Operation: str='drop' | str='nop' | str='dup' (copies=INT)? |
+               str='reor' (count=INT)?;
     Comment: /#.*$/;
 """
 
 
 def op_processor(op):
-  # if copies is not given for a dup op, set it to 1
-  if op.str == "dup" and op.copies == 0:
-    op.copies = 1
+    # if copies is not given for a dup op, set it to 1
+    if op.str == 'dup' and op.copies == 0:
+        op.copies = 1
+    elif op.str == 'reor' and op.count == 0:
+        op.count = 1
 
 
 def main(bind=args.ltn_addr, port=args.ltn_port,

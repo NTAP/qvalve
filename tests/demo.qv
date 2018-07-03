@@ -7,5 +7,8 @@
 # duplicate the second server vneg pkt three times (= four copies sent)
 < v2 dup 3
 
+# reorder the first two server handshake pkts (default: by one pkt)
+< h1..2 reor
+
 # nop does nothing
-< h1 nop
+< s1 nop
