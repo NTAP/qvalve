@@ -27,17 +27,40 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 
-# Based on the following gist of unknown license (inquiry pending):
-# https://gist.github.com/vxgmichel/b2cf8536363275e735c231caef35a5df
+# Portions of this code are adapted from
+# https://gist.github.com/vxgmichel/b2cf8536363275e735c231caef35a5df by Vincent
+# Michel.
+
+# SPDX-License-Identifier: MIT
+#
+# Copyright (c) 2017, Vincent Michel
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
 
 
 import argparse
 import asyncio
 from collections import defaultdict
 from textx import metamodel_from_str
-from test import Test
+from rules import Rules
 
-parser = argparse.ArgumentParser(description='Muck with QUIC packet flows.')
+parser = argparse.ArgumentParser(description='Predictably impair QUIC flows.')
 parser.add_argument('-ra', '--remote-address', required=True, metavar='IP',
                     dest='fwd_addr', help='IP address to forward to')
 parser.add_argument('-rp', '--remote-port', default='4433', metavar='port',
@@ -46,12 +69,12 @@ parser.add_argument('-la', '--listen-address', default='0.0.0.0', metavar='IP',
                     dest='ltn_addr', help='IP address to listen on')
 parser.add_argument('-lp', '--listen-port', default='4433', metavar='port',
                     type=int, dest='ltn_port', help='UDP port to listen on')
-parser.add_argument('-t', '--test', metavar='file',
-                    type=str, dest='test_file', help='Test case definition')
+parser.add_argument('-r', '--rules', metavar='file',
+                    type=str, dest='rules_file', help='Impairment rules')
 args = parser.parse_args()
 
 pkt_cnt = defaultdict(int)
-test = Test()
+rules = Rules()
 
 
 def fwd_pkt(addr, peername, data, dir, transport, dst=None):
@@ -75,26 +98,26 @@ def fwd_pkt(addr, peername, data, dir, transport, dst=None):
 
     print('{} {} {}{} '.format(dir, len(data), t, n), end='')
 
-    rules = test.rules_clnt if dir == '>' else test.rules_serv
-    if (t in rules) and (n in rules[t]):
-        r = rules[t][n]
-        if (t == r.type):
-            if r.op.str == 'drop':
-                print(r.op.str)
+    r = rules.clnt if dir == '>' else rules.serv
+    if (t in r) and (n in r[t]):
+        rule = r[t][n]
+        if (t == rule.type):
+            if rule.op.str == 'drop':
+                print(rule.op.str)
                 # just return
                 return
-            elif r.op.str == 'dup':
-                print(r.op.str, r.op.copies, end='')
+            elif rule.op.str == 'dup':
+                print(rule.op.str, rule.op.copies, end='')
                 # sent copies
-                for i in range(r.op.copies):
+                for i in range(rule.op.copies):
                     transport.sendto(data, dst)
                 # the final copy is sent before exiting below
-            elif r.op.str == 'nop':
-                print(r.op.str, end='')
+            elif rule.op.str == 'nop':
+                print(rule.op.str, end='')
                 # normal operation per below
             else:
                 # what is this?
-                assert False, "unknown op {}".format(r.op.str)
+                assert False, "unknown op {}".format(rule.op.str)
 
     print()
     transport.sendto(data, dst)
@@ -151,8 +174,8 @@ async def start_datagram_proxy(bind, port, remote_addr, remote_port):
 
 
 metamodel = r"""
-    Script: statements*=Statement;
-    Statement: dir=Direction type=PacketType range=Range op=Operation;
+    Rules: rules*=Rule;
+    Rule: dir=Direction type=PacketType range=Range op=Operation;
     Direction: '<' | '>';
     PacketType: 'i' | 'r' | 'h' | 'z' | 'v' | 's';
     Range: PacketRange | SinglePacket;
@@ -171,12 +194,12 @@ def op_processor(op):
 
 def main(bind=args.ltn_addr, port=args.ltn_port,
          remote_addr=args.fwd_addr, remote_port=args.fwd_port):
-    if args.test_file:
+    if args.rules_file:
         qvalve_mm = metamodel_from_str(metamodel, ignore_case=True)
         qvalve_mm.register_obj_processors({'Operation': op_processor})
-        qvalve_model = qvalve_mm.model_from_file(args.test_file)
-        print('Parsing {}:'.format(args.test_file))
-        test.interpret(qvalve_model)
+        qvalve_model = qvalve_mm.model_from_file(args.rules_file)
+        print('Parsing {}:'.format(args.rules_file))
+        rules.interpret(qvalve_model)
 
     print('\nListening on {}:{} and applying rules:'.format(bind, port))
     loop = asyncio.get_event_loop()

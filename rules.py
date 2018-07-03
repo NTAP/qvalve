@@ -35,20 +35,20 @@ class Rule(object):
         self.type = type;
 
 
-class Test(object):
+class Rules(object):
 
     def __init__(self):
-        self.rules_clnt = defaultdict(dict)
-        self.rules_serv = defaultdict(dict)
+        self.clnt = defaultdict(dict)
+        self.serv = defaultdict(dict)
 
     def add_rule(self, seqno, statement):
         r = Rule(seqno, statement.op, statement.type)
-        rules = self.rules_clnt if statement.dir == '>' else self.rules_serv
+        rules = self.clnt if statement.dir == '>' else self.serv
         assert seqno not in rules[statement.type]
         rules[statement.type][seqno] = r
 
     def interpret(self, model):
-        for s in model.statements:
+        for s in model.rules:
             print("{} {}{}".format(s.dir, s.type, s.range.start), end='')
             if s.range.__class__.__name__ == "SinglePacket":
                 self.add_rule(s.range.start, s)
