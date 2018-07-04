@@ -82,8 +82,8 @@ rules = Rules()
 reor_q = defaultdict(list)
 
 
-def print_pkt(call, dir, len, t, ctype, end=None):
-    print('{}{} {} {}{} '.format(call, dir, len, t, ctype), end=end)
+def print_pkt(dir, len, t, ctype, op=''):
+    print('{} {} {}{} {}'.format(dir, len, t, ctype, op))
 
 
 def fwd_pkt(addr, peer, data, dir, tp, dst=None):
@@ -111,46 +111,39 @@ def fwd_pkt(addr, peer, data, dir, tp, dst=None):
         rule = r[t][cnt_type[t, addr, peer]]
         if (t == rule.type):
             if rule.op.str == 'drop':
-                print_pkt(cnt_all[addr, peer], dir, len(data), t,
-                          cnt_type[t, addr, peer], '')
-                print(rule.op.str)
+                print_pkt(dir, len(data), t, cnt_type[t, addr, peer],
+                          rule.op.str)
                 # don't send
 
             elif rule.op.str == 'dup':
                 for i in range(rule.op.copies + 1):
                     if i > 0:
-                        cnt_type[t, addr, peer] += 1
                         cnt_all[addr, peer] += 1
-                        print_pkt(cnt_all[addr, peer], dir, len(data),
-                                  t, cnt_type[t, addr, peer], '')
-                        print('{}'.format(rule.op.str))
+                        print_pkt(dir, len(data), t, cnt_type[t, addr, peer],
+                                  '({})'.format(rule.op.str))
                     else:
-                        print_pkt(cnt_all[addr, peer], dir, len(data),
-                                  t, cnt_type[t, addr, peer])
+                        print_pkt(dir, len(data), t, cnt_type[t, addr, peer],
+                                  '{} {}'.format(rule.op.str, rule.op.copies))
                     tp.sendto(data, dst)
 
             elif rule.op.str == 'reor':
                 cnt_all[addr, peer] -= 1
-                print_pkt(' ', dir, len(data), t,
-                          cnt_type[t, addr, peer], '')
-                print(rule.op.str, rule.op.count, '(enq)')
+                print_pkt(dir, len(data), t, cnt_type[t, addr, peer],
+                          '{} {} (enq)'.format(rule.op.str, rule.op.count))
                 # enqueue the packet
                 q = reor_q[addr, peer, cnt_all[addr, peer] + rule.op.count]
                 q.append({'transport': tp, 'data': data, 'dst': dst,
                           't': t, 'ctype': cnt_type[t, addr, peer]})
 
             elif rule.op.str == 'nop':
-                print_pkt(cnt_all[addr, peer], dir, len(data), t,
-                          cnt_type[t, addr, peer], '')
-                print(rule.op.str)
+                print_pkt(dir, len(data), t, cnt_type[t, addr, peer])
                 tp.sendto(data, dst)
 
             else:
                 # what op is this?
                 assert False, 'unknown op {}'.format(rule.op.str)
     else:
-        print_pkt(cnt_all[addr, peer], dir, len(data), t,
-                  cnt_type[t, addr, peer])
+        print_pkt(dir, len(data), t, cnt_type[t, addr, peer])
         tp.sendto(data, dst)
 
     # check if we need to dequeue and tx prior reordered packets
@@ -158,9 +151,7 @@ def fwd_pkt(addr, peer, data, dir, tp, dst=None):
         for p in reor_q[addr, peer, cnt_all[addr, peer]]:
             p['transport'].sendto(p['data'], p['dst'])
             cnt_all[addr, peer] += 1
-            print_pkt(cnt_all[addr, peer], dir, len(p['data']), p['t'],
-                      p['ctype'], '')
-            print('(reor deq)')
+            print_pkt(dir, len(p['data']), p['t'], p['ctype'], '(reor deq)')
         reor_q[addr, peer, cnt_all[addr, peer]].clear()
 
 
