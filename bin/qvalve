@@ -61,7 +61,7 @@ import functools
 from struct import *
 from collections import defaultdict
 from textx import metamodel_from_str
-from rules import Rules
+from qvalve import Rules
 
 parser = argparse.ArgumentParser(description='Predictably impair QUIC flows.')
 parser.add_argument('-ra', '--remote-address', required=True, metavar='IP',
