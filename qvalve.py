@@ -56,6 +56,8 @@
 
 import argparse
 import asyncio
+import signal
+import functools
 from struct import *
 from collections import defaultdict
 from textx import metamodel_from_str
@@ -227,6 +229,10 @@ def op_processor(op):
         op.count = 1
 
 
+def ask_exit(signame, loop):
+    loop.stop()
+
+
 def main(bind=args.ltn_addr, port=args.ltn_port,
          remote_addr=args.fwd_addr, remote_port=args.fwd_port):
     if args.rules_file:
@@ -238,6 +244,9 @@ def main(bind=args.ltn_addr, port=args.ltn_port,
 
     print('\nListening on {}:{} and applying rules:'.format(bind, port))
     loop = asyncio.get_event_loop()
+    for signame in ('SIGINT', 'SIGTERM'):
+        loop.add_signal_handler(getattr(signal, signame),
+                                functools.partial(ask_exit, signame, loop))
     coro = start_datagram_proxy(bind, port, remote_addr, remote_port)
     transport, _ = loop.run_until_complete(coro)
     try:
