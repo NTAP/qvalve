@@ -24,7 +24,7 @@ language. Examples:
 < h2 nop
 ```
 
-More examples are in the `tests` directory.
+More examples are in the `tests` directory and in https://github.com/NTAP/quant/tree/14/qvalve-tests.
 
 See https://github.com/NTAP/quant/blob/14/bin/dtest.sh for an example for how to use this to automatically test a QUIC stack with docker containers (via the `docker-compose` config in https://github.com/NTAP/quant/blob/14/docker-compose.yml).
 
