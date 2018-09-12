@@ -26,7 +26,7 @@ language. Examples:
 
 More examples are in the `tests` directory.
 
-See https://github.com/NTAP/quant/blob/14/bin/dtest.sh for an example for how to use this to automatically test a QUIC stack with docker containers.
+See https://github.com/NTAP/quant/blob/14/bin/dtest.sh for an example for how to use this to automatically test a QUIC stack with docker containers (via the `docker-compose` config in https://github.com/NTAP/quant/blob/14/docker-compose.yml).
 
 
 # Copyright
