@@ -1,4 +1,4 @@
-from setuptools import setup
+from setuptools import setup, find_packages
 
 setup(name='qvalve',
       version='0.1',
@@ -6,7 +6,7 @@ setup(name='qvalve',
       url='https://github.com/larseggert/qvalve',
       author='Lars Eggert',
       author_email='lars@eggert.org',
-      packages=setuptools.find_packages(),
+      packages=find_packages(),
       scripts=['bin/qvalve'],
       install_requires=['textx'],
       classifiers=(
