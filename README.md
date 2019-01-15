@@ -31,7 +31,7 @@ See https://github.com/NTAP/quant/blob/14/bin/dtest.sh for an example for how to
 
 # Copyright
 
-Copyright (c) 2018, NetApp, Inc.
+Copyright (c) 2018-2019, NetApp, Inc.
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
