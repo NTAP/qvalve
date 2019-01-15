@@ -91,17 +91,17 @@ def print_pkt(dir, len, t, ctype, op=''):
 def fwd_pkt(addr, peer, data, dir, tp, dst=None):
     # now handle the current packet
     t = ''
-    if ((data[0] & 0x30) >> 4) == 0x00:
-        t = 'i'
-    elif ((data[0] & 0x30) >> 4) == 0x01:
-        t = 'z'
-    elif ((data[0] & 0x30) >> 4) == 0x02:
-        t = 'h'
-    elif ((data[0] & 0x30) >> 4) == 0x03:
-        t = 'r'
-    elif data[0] & 0x80 and unpack('!L', data[1:5])[0] == 0:
+    if (data[0] & 0x80) and unpack('!L', data[1:5])[0] == 0:
         t = 'v'
-    elif (data[0] & 0x80) == 0 and (data[0] & 0b00110000) == 0b00110000:
+    elif (data[0] & 0x80) and ((data[0] & 0x30) >> 4) == 0x00:
+        t = 'i'
+    elif (data[0] & 0x80) and ((data[0] & 0x30) >> 4) == 0x01:
+        t = 'z'
+    elif (data[0] & 0x80) and ((data[0] & 0x30) >> 4) == 0x02:
+        t = 'h'
+    elif (data[0] & 0x80) and ((data[0] & 0x30) >> 4) == 0x03:
+        t = 'r'
+    elif (data[0] & 0x80) == 0:
         t = 's'
     assert t != ''
 
